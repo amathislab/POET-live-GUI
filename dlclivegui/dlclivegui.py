@@ -5,6 +5,8 @@ DeepLabCut Toolbox (deeplabcut.org)
 Licensed under GNU Lesser General Public License v3.0
 """
 
+import warnings
+warnings.filterwarnings("ignore")
 
 from tkinter import (
     Tk,
@@ -37,6 +39,44 @@ from dlclivegui import CameraPoseProcess
 from dlclivegui import processor
 from dlclivegui import camera
 from dlclivegui.tkutil import SettingsWindow
+
+
+COCO_PERSON_KEYPOINT_NAMES = (
+    "nose",
+    "left_eye", "right_eye",
+    "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder",
+    "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist",
+    "left_hip", "right_hip",
+    "left_knee", "right_knee",
+    "left_ankle", "right_ankle",
+)
+
+# rules for pairs of keypoints to draw a line between, and the line color to use.
+KEYPOINT_CONNECTION_RULES = [
+    # face
+    ("left_ear", "left_eye", (102, 204, 255)),
+    ("right_ear", "right_eye", (51, 153, 255)),
+    ("left_eye", "nose", (102, 0, 204)),
+    ("nose", "right_eye", (51, 102, 255)),
+    # upper-body
+    ("left_shoulder", "right_shoulder", (255, 128, 0)),
+    ("left_shoulder", "left_elbow", (153, 255, 204)),
+    ("right_shoulder", "right_elbow", (128, 229, 255)),
+    ("left_elbow", "left_wrist", (153, 255, 153)),
+    ("right_elbow", "right_wrist", (102, 255, 224)),
+    # upper-to-lower-body
+    ("right_shoulder", "right_hip", (255, 128, 128)),
+    ("left_shoulder", "left_hip", (204, 128, 102)),
+    # lower-body
+    ("left_hip", "right_hip", (255, 102, 0)),
+    ("left_hip", "left_knee", (255, 255, 77)),
+    ("right_hip", "right_knee", (153, 255, 204)),
+    ("left_knee", "left_ankle", (191, 255, 128)),
+    ("right_knee", "right_ankle", (255, 195, 77)),
+]
+
 
 
 class DLCLiveGUI(object):
@@ -474,8 +514,15 @@ class DLCLiveGUI(object):
 
                     img_draw = ImageDraw.Draw(img)
 
+                    visible = {ind: dict() for ind in range(int(pose.shape[0]/17))}
+                    individual_cnt = 0
+
                     for i in range(pose.shape[0]):
                         if pose[i, 2] > self.display_lik_thresh:
+                            keypoint_name = COCO_PERSON_KEYPOINT_NAMES[i%17]
+                            if i >= (individual_cnt * 17) + 17:
+                                individual_cnt += 1
+                            visible[individual_cnt][keypoint_name] = (pose[i,0], pose[i,1])
                             try:
                                 x0 = (
                                     pose[i, 0] - self.display_radius
@@ -500,11 +547,22 @@ class DLCLiveGUI(object):
                                 coords = [x0, y0, x1, y1]
                                 img_draw.ellipse(
                                     coords,
-                                    fill=self.display_colors[i],
-                                    outline=self.display_colors[i],
+                                    #fill=self.display_colors[i],
+                                    fill=self.display_colors[i%17],
+                                    #outline=self.display_colors[i],
+                                    outline=self.display_colors[i%17],
                                 )
+
                             except Exception as e:
                                 print(e)
+
+                    for kp0, kp1, color in KEYPOINT_CONNECTION_RULES:
+                        for individual in list(visible.keys()):
+                            if kp0 in visible[individual] and kp1 in visible[individual]:
+                                x0, y0 = visible[individual][kp0]
+                                x1, y1 = visible[individual][kp1]
+                                img_draw.line([x0,y0,x1,y1], fill=color, width=self.display_radius*3)
+
 
                 imgtk = ImageTk.PhotoImage(image=img)
                 self.display_frame_label.imgtk = imgtk
@@ -646,7 +704,7 @@ class DLCLiveGUI(object):
         Combobox(
             self.dlc_settings_window,
             textvariable=self.dlc_settings_model_type,
-            value=["base", "tensorrt", "tflite"],
+            value=["base", "tensorrt", "tflite", "poet"],
             state="readonly",
         ).grid(sticky="nsew", row=cur_row, column=1)
         cur_row += 1
